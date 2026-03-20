@@ -25,8 +25,7 @@ router.post('/:id/find', findDevice);
 // Device status check bhi public kar diya (power status check ke liye)
 router.get('/:id', getDevice);
 
-// PROTECTED — iske liye token chahiye
-router.use(protect);
+
 router.get('/', getDevices);
 router.post('/', createDevice);
 router.put('/:id', updateDevice);
