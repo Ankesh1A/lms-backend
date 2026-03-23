@@ -18,14 +18,14 @@ exports.deviceAuth = async (req, res, next) => {
         if (!deviceObjectId) {
             return res.status(401).json({
                 success: false,
-                message: 'Device not authorized — URL param mein device _id provide karo',
+                message: 'Device not authorized — provide device _id in url',
             });
         }
 
         if (!imeiHeader) {
             return res.status(401).json({
                 success: false,
-                message: 'Device not authorized — Header mein x-device-imei provide karo',
+                message: 'Device not authorized — provide x-device-imei in header',
             });
         }
 
@@ -33,7 +33,7 @@ exports.deviceAuth = async (req, res, next) => {
         if (!/^[0-9a-fA-F]{24}$/.test(deviceObjectId)) {
             return res.status(401).json({
                 success: false,
-                message: 'Device not authorized — URL mein valid MongoDB _id chahiye (24 hex chars)',
+                message: 'Device not authorized —  valid MongoDB _id must be in url',
             });
         }
 
@@ -41,7 +41,7 @@ exports.deviceAuth = async (req, res, next) => {
         if (!/^\d{15}$/.test(imeiHeader)) {
             return res.status(401).json({
                 success: false,
-                message: 'Device not authorized — x-device-imei exactly 15 digits hona chahiye',
+                message: 'Device not authorized — x-device-imei exactly must be 15 digits ',
             });
         }
 
@@ -51,7 +51,7 @@ exports.deviceAuth = async (req, res, next) => {
         if (!device) {
             return res.status(401).json({
                 success: false,
-                message: 'Device not authorized — yeh _id registered nahi hai',
+                message: 'Device not authorized — this _id is not registered ',
             });
         }
 
@@ -59,7 +59,7 @@ exports.deviceAuth = async (req, res, next) => {
         if (device.imei !== imeiHeader) {
             return res.status(401).json({
                 success: false,
-                message: 'Device not authorized — IMEI is _id ke device se match nahi karta',
+                message: 'Device not authorized — IMEI is not  match with device _id',
             });
         }
 
