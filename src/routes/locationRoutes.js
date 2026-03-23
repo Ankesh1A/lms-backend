@@ -10,12 +10,12 @@ const {
     calculateRouteDistance,
 } = require('../controllers/locationController');
 const { protect } = require('../middleware/auth');
+const { deviceAuth } = require('../middleware/deviceAuth');
 
-//  PUBLIC — GPS device bina token ke push kar sakta hai
-router.post('/:deviceId/push', pushLocation);
-router.get('/:deviceId/history', getHistory);
-// 🔒 PROTECTED — in sab ke liye token chahiye
+
+router.post('/:deviceId/push',deviceAuth, pushLocation);
 router.use(protect);
+router.get('/:deviceId/history', getHistory);
 router.post('/distance/calculate', calculateDistance);
 router.post('/distance/route', calculateRouteDistance);
 router.get('/live', getAllLive);
