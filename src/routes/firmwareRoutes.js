@@ -12,8 +12,8 @@ const {
 const { protect } = require('../middleware/auth');
 const { deviceAuth } = require('../middleware/deviceAuth');
 
-router.get('/download/:device_id',deviceAuth, downloadFirmware);
-router.get('/latest/:device_id',deviceAuth, getLatestFirmware);
+router.get('/download/:device_id', downloadFirmware);
+router.get('/latest/:device_id', getLatestFirmware);
  router.use(protect);
 router.post('/upload', uploadFirmware);
 router.get('/versions/:device_id', getFirmwareVersions);

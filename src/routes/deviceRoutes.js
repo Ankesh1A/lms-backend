@@ -14,13 +14,15 @@ const {
     getDashboardStats,
 } = require('../controllers/deviceController');
 const { protect } = require('../middleware/auth');
+const { deviceAuth } = require('../middleware/deviceAuth');
+
+router.post('/:id/find', findDevice);
+router.patch('/:id/power', powerToggle);
+router.get('/:id', getDevice);
 
 router.use(protect);
 router.post('/:id/power-off', powerOff);
 router.post('/:id/power-on', powerOn);
-router.patch('/:id/power', powerToggle);
-router.post('/:id/find', findDevice);
-router.get('/:id', getDevice);
 router.get('/', getDevices);
 router.post('/', createDevice);
 router.put('/:id', updateDevice);
