@@ -38,6 +38,19 @@ const locationSchema = new mongoose.Schema({
         type: Number,
         default: null,
     },
+    voltage: {
+        type: Number,
+        default: null,
+    },
+    temperature: {
+        type: Number,
+        default: null,
+    },
+    bike_status: {
+        type: String,
+        enum: ['normal', 'fallen'],
+        default: 'normal',
+    },
     signal: {
         type: String,
         default: '',

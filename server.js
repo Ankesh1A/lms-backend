@@ -19,6 +19,8 @@ const deviceRoutes = require('./src/routes/deviceRoutes');
 const locationRoutes = require('./src/routes/locationRoutes');
 const tripRoutes = require('./src/routes/tripRoutes');
 const firmwareRoutes = require('./src/routes/firmwareRoutes');
+const alertRoutes = require('./src/routes/alertRoutes');
+const geofenceRoutes = require('./src/routes/geofenceRoutes');
 
 // Connect to DB
 connectDB();
@@ -73,6 +75,8 @@ app.use('/api/devices', deviceRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/trips', tripRoutes);
 app.use('/api/firmware', firmwareRoutes);
+app.use('/api/alerts', alertRoutes);
+app.use('/api/geofences', geofenceRoutes);
 
 // ─── 404 Handler ──────────────────────────────────────
 app.use((req, res) => {

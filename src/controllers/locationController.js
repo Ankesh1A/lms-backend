@@ -1,5 +1,7 @@
 const Location = require('../models/Location');
 const Device = require('../models/Device');
+const Alert = require('../models/Alert');
+const Geofence = require('../models/Geofence');
 const { sendSuccess, sendError, sendPaginated } = require('../utils/apiResponse');
 const { haversineDistance, calculateTripStats, getTodayStr } = require('../utils/distanceCalculator');
 
@@ -51,10 +53,40 @@ exports.pushLocation = async (req, res) => {
     let lastLat = device.lat;
     let lastLng = device.lng;
     const today = getTodayStr();
+    const alertsToCreate = [];
+
+    // Fetch active geofences for this device's owner
+    const activeGeofences = await Geofence.find({
+        isActive: true,
+        createdBy: device.createdBy,
+        $or: [ { devices: device._id }, { devices: { $size: 0 } } ]
+    });
+
+    const isPointInPolygon = (point, vs) => {
+        let x = point.lat, y = point.lng;
+        let inside = false;
+        for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+            let xi = vs[i].lat, yi = vs[i].lng;
+            let xj = vs[j].lat, yj = vs[j].lng;
+            let intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    };
+
+    const isInsideGeofence = (lat, lng, gf) => {
+        if (gf.type === 'circle') {
+            const dist = haversineDistance(lat, lng, gf.circle.lat, gf.circle.lng) * 1000;
+            return dist <= gf.circle.radius;
+        } else if (gf.type === 'polygon' && gf.polygon.length >= 3) {
+            return isPointInPolygon({ lat, lng }, gf.polygon);
+        }
+        return false;
+    };
 
     // Process each location
     for (const locData of locations) {
-        const { lat, lng, speed = 0, battery, signal, address = '' } = locData;
+        const { lat, lng, speed = 0, battery, battery_percent, voltage, temperature, bike_status, signal, address = '' } = locData;
 
         if (!lat || !lng) continue;
 
@@ -64,6 +96,42 @@ exports.pushLocation = async (req, res) => {
             distanceFromPrev = haversineDistance(lastLat, lastLng, lat, lng);
         }
 
+        const finalBattery = battery_percent !== undefined ? battery_percent : (battery !== undefined ? battery : device.battery);
+        const finalVoltage = voltage !== undefined ? voltage : device.voltage;
+        const finalTemperature = temperature !== undefined ? temperature : device.temperature;
+        const finalBikeStatus = bike_status !== undefined ? bike_status : (device.bike_status || 'normal');
+
+        // Check alerts (only trigger if state changed to anomalous to avoid spam)
+        if (finalBattery < 20 && (!device.battery || device.battery >= 20)) {
+            alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'BATTERY_LOW', message: `Battery is low (${finalBattery}%)`, lat, lng });
+        }
+        if (finalVoltage > 90 && (!device.voltage || device.voltage <= 90)) {
+            alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'HIGH_VOLTAGE', message: `High voltage detected (${finalVoltage}V)`, lat, lng });
+        }
+        if (finalTemperature > 80 && (!device.temperature || device.temperature <= 80)) {
+            alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'HIGH_TEMPERATURE', message: `High temperature detected (${finalTemperature}°C)`, lat, lng });
+        }
+        if (finalBikeStatus === 'fallen' && device.bike_status !== 'fallen') {
+            alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'FALL_DETECTED', message: `Bike fall detected!`, lat, lng });
+        }
+
+        if (lastLat && lastLng) {
+            const currentIsInside = activeGeofences.map(gf => ({ gf, inside: isInsideGeofence(lat, lng, gf) }));
+            const prevIsInside = activeGeofences.map(gf => ({ gf, inside: isInsideGeofence(lastLat, lastLng, gf) }));
+
+            for (let i = 0; i < activeGeofences.length; i++) {
+                const wasInside = prevIsInside[i].inside;
+                const isInside = currentIsInside[i].inside;
+                const gf = activeGeofences[i];
+
+                if (!wasInside && isInside) {
+                    alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'GEOFENCE_ENTER', message: `Entered geofence: ${gf.name}`, lat, lng });
+                } else if (wasInside && !isInside) {
+                    alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'GEOFENCE_EXIT', message: `Exited geofence: ${gf.name}`, lat, lng });
+                }
+            }
+        }
+
         // Create location entry
         const location = await Location.create({
             device: device._id,
@@ -71,7 +139,10 @@ exports.pushLocation = async (req, res) => {
             lat, lng, speed,
             address,
             distance_from_prev: distanceFromPrev,
-            battery: battery ?? device.battery,
+            battery: finalBattery,
+            voltage: finalVoltage,
+            temperature: finalTemperature,
+            bike_status: finalBikeStatus,
             signal: signal || device.signal,
             time: new Date(),
         });
@@ -96,11 +167,23 @@ exports.pushLocation = async (req, res) => {
         $inc: { total_distance: totalDistanceAdded },
     };
 
+    const lastLocData = locations[locations.length - 1];
     const allowedSignals = ['Strong','Good','Weak','No Signal'];
-    if (locations[0].battery !== undefined) updateData.battery = locations[0].battery;
-    if (locations[0].signal && allowedSignals.includes(locations[0].signal)) {
+    
+    if (lastLocData.battery !== undefined) updateData.battery = lastLocData.battery;
+    else if (lastLocData.battery_percent !== undefined) updateData.battery = lastLocData.battery_percent;
+    
+    if (lastLocData.voltage !== undefined) updateData.voltage = lastLocData.voltage;
+    if (lastLocData.temperature !== undefined) updateData.temperature = lastLocData.temperature;
+    if (lastLocData.bike_status !== undefined) updateData.bike_status = lastLocData.bike_status;
+
+    if (lastLocData.signal && allowedSignals.includes(lastLocData.signal)) {
         // only propagate a valid signal value
-        updateData.signal = locations[0].signal;
+        updateData.signal = lastLocData.signal;
+    }
+
+    if (alertsToCreate.length > 0) {
+        await Alert.insertMany(alertsToCreate);
     }
     // invalid values are ignored rather than written to the device document
 
@@ -289,7 +372,7 @@ exports.getHistoryWithStats = async (req, res) => {
 // @access  Private
 exports.getAllLive = async (req, res) => {
     const devices = await Device.find({ status: { $ne: 'Disabled' } })
-        .select('device_id device_name vehicle_id lat lng speed status battery signal last_seen address distance_today');
+        .select('device_id device_name vehicle_id lat lng speed status battery signal last_seen address distance_today voltage temperature bike_status');
 
     const devicesWithUrls = devices.map(d => {
         const obj = d.toObject ? d.toObject() : d;

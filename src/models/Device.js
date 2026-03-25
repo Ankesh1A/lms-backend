@@ -47,6 +47,19 @@ const deviceSchema = new mongoose.Schema({
         max: 100,
         default: 100,
     },
+    voltage: {
+        type: Number,
+        default: null,
+    },
+    temperature: {
+        type: Number,
+        default: null,
+    },
+    bike_status: {
+        type: String,
+        enum: ['normal', 'fallen'],
+        default: 'normal',
+    },
     signal: {
         type: String,
         enum: ['Strong', 'Good', 'Weak', 'No Signal'],
