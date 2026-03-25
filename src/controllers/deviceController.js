@@ -86,16 +86,17 @@ exports.updateDevice = async (req, res) => {
     if (updateData.signal) {
         const validSignals = ['Strong', 'Good', 'Weak', 'No Signal'];
         if (!validSignals.includes(updateData.signal)) {
-            // Try to map numeric values to valid strings
-            const signalMap = {
-                '1': 'Strong',
-                '2': 'Good',
-                '3': 'Weak',
-                '4': 'No Signal'
-            };
+            const signalMap = { '1': 'Strong', '2': 'Good', '3': 'Weak', '4': 'No Signal' };
             updateData.signal = signalMap[updateData.signal] || 'Good';
         }
     }
+
+    // Auto-set createdBy from logged-in user if device has none (handles old devices)
+    if (!device.createdBy) {
+        updateData.createdBy = req.user?._id || req.user?.id;
+    }
+    // Never allow clearing createdBy from frontend
+    if (!updateData.createdBy) delete updateData.createdBy;
 
     device = await Device.findByIdAndUpdate(req.params.id, updateData, {
         new: true,
@@ -104,6 +105,7 @@ exports.updateDevice = async (req, res) => {
 
     return sendSuccess(res, { data: device }, 'Device updated');
 };
+
 
 // @desc    Delete device
 // @route   DELETE /api/devices/:id

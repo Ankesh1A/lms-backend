@@ -59,7 +59,7 @@ exports.pushLocation = async (req, res) => {
     const activeGeofences = await Geofence.find({
         isActive: true,
         createdBy: device.createdBy,
-        $or: [ { devices: device._id }, { devices: { $size: 0 } } ]
+        $or: [{ devices: device._id }, { devices: { $size: 0 } }]
     });
 
     const isPointInPolygon = (point, vs) => {
@@ -101,17 +101,17 @@ exports.pushLocation = async (req, res) => {
         const finalTemperature = temperature !== undefined ? temperature : device.temperature;
         const finalBikeStatus = bike_status !== undefined ? bike_status : (device.bike_status || 'normal');
 
-        // Check alerts (only trigger if state changed to anomalous to avoid spam)
-        if (finalBattery < 20 && (!device.battery || device.battery >= 20)) {
+        // Check alerts — upsert below handles dedup, so just check thresholds here
+        if (finalBattery !== undefined && finalBattery < 20) {
             alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'BATTERY_LOW', message: `Battery is low (${finalBattery}%)`, lat, lng });
         }
-        if (finalVoltage > 90 && (!device.voltage || device.voltage <= 90)) {
+        if (finalVoltage !== undefined && finalVoltage > 90) {
             alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'HIGH_VOLTAGE', message: `High voltage detected (${finalVoltage}V)`, lat, lng });
         }
-        if (finalTemperature > 80 && (!device.temperature || device.temperature <= 80)) {
+        if (finalTemperature !== undefined && finalTemperature > 80) {
             alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'HIGH_TEMPERATURE', message: `High temperature detected (${finalTemperature}°C)`, lat, lng });
         }
-        if (finalBikeStatus === 'fallen' && device.bike_status !== 'fallen') {
+        if (finalBikeStatus === 'fallen') {
             alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'FALL_DETECTED', message: `Bike fall detected!`, lat, lng });
         }
 
@@ -168,11 +168,11 @@ exports.pushLocation = async (req, res) => {
     };
 
     const lastLocData = locations[locations.length - 1];
-    const allowedSignals = ['Strong','Good','Weak','No Signal'];
-    
+    const allowedSignals = ['Strong', 'Good', 'Weak', 'No Signal'];
+
     if (lastLocData.battery !== undefined) updateData.battery = lastLocData.battery;
     else if (lastLocData.battery_percent !== undefined) updateData.battery = lastLocData.battery_percent;
-    
+
     if (lastLocData.voltage !== undefined) updateData.voltage = lastLocData.voltage;
     if (lastLocData.temperature !== undefined) updateData.temperature = lastLocData.temperature;
     if (lastLocData.bike_status !== undefined) updateData.bike_status = lastLocData.bike_status;
@@ -183,9 +183,51 @@ exports.pushLocation = async (req, res) => {
     }
 
     if (alertsToCreate.length > 0) {
-        await Alert.insertMany(alertsToCreate);
+        // Upsert logic: update existing unread alert of same type, create new if none exists
+        await Alert.bulkWrite(
+            alertsToCreate.map(alert => ({
+                updateOne: {
+                    filter: { device: alert.device, type: alert.type, isRead: false },
+                    update: {
+                        $set: {
+                            message: alert.message,
+                            lat: alert.lat,
+                            lng: alert.lng,
+                            device_id: alert.device_id,
+                            time: new Date(),
+                        },
+                        $setOnInsert: {
+                            device: alert.device,
+                            type: alert.type,
+                            isRead: false,
+                        },
+                    },
+                    upsert: true,
+                },
+            }))
+        );
     }
-    // invalid values are ignored rather than written to the device document
+
+    // Auto-resolve: delete unread alerts when value returns to normal
+    const lastLoc = locations[locations.length - 1];
+    const resolveTypes = [];
+    const resolvedBattery = lastLoc.battery_percent !== undefined ? lastLoc.battery_percent : lastLoc.battery;
+    if (resolvedBattery !== undefined && resolvedBattery >= 20) resolveTypes.push('BATTERY_LOW');
+    if (lastLoc.voltage !== undefined && lastLoc.voltage <= 90)    resolveTypes.push('HIGH_VOLTAGE');
+    if (lastLoc.temperature !== undefined && lastLoc.temperature <= 80) resolveTypes.push('HIGH_TEMPERATURE');
+    if (lastLoc.bike_status !== undefined && lastLoc.bike_status !== 'fallen') resolveTypes.push('FALL_DETECTED');
+
+    console.log('[AUTO-RESOLVE] device._id:', device._id, 'resolveTypes:', resolveTypes);
+
+    if (resolveTypes.length > 0) {
+        const delResult = await Alert.deleteMany({
+            device: device._id,
+            type: { $in: resolveTypes },
+            isRead: false,
+        });
+        console.log('[AUTO-RESOLVE] deleted count:', delResult.deletedCount);
+    }
+
 
     // Reset distance_today if date changed
     if (device.distance_today_date !== today) {
@@ -227,9 +269,9 @@ exports.pushLocation = async (req, res) => {
     });
 
     const message = isBatch ? `${createdLocations.length} locations recorded` : 'Location recorded';
-    return sendSuccess(res, { 
+    return sendSuccess(res, {
         data: isBatch ? responseLocations : responseLocations[0],
-        count: createdLocations.length 
+        count: createdLocations.length
     }, message, 201);
 };
 

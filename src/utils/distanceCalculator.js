@@ -36,11 +36,8 @@ const calculateTotalDistance = (points) => {
     return parseFloat(total.toFixed(2));
 };
 
-/**
- * Calculate trip stats from location points
- * @param {Array} points - Array of location documents
- * @returns {Object} { distance, duration, maxSpeed, avgSpeed }
- */
+
+
 const calculateTripStats = (points) => {
     if (!points || points.length < 2) {
         return { distance: 0, duration: 0, maxSpeed: 0, avgSpeed: 0 };
@@ -64,7 +61,10 @@ const calculateTripStats = (points) => {
 /**
  * Get today's date string in YYYY-MM-DD format
  */
+
+
 const getTodayStr = () => new Date().toISOString().split('T')[0];
+
 
 module.exports = {
     haversineDistance,
