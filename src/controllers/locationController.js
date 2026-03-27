@@ -245,8 +245,15 @@ exports.pushLocation = async (req, res) => {
         updateData.$inc.distance_today = totalDistanceAdded;
     }
 
-    // NOTE: Device status is intentionally NOT changed here.
-    // Status (Active/Disabled) must only be changed manually by the user via Power button.
+    // NOTE: Device status is intentionally NOT changed here manually.
+    // Auto-shutdown: agar active geofences hain aur device kisi ke andar nahi hai to Disabled karo
+    if (activeGeofences.length > 0) {
+        const isInsideAny = activeGeofences.some(gf => isInsideGeofence(lastLat, lastLng, gf));
+        if (!isInsideAny) {
+            updateData.status = 'Disabled';
+            console.log(`[GEOFENCE] Device ${device.device_id} is outside all geofences — auto-disabling.`);
+        }
+    }
 
     // runValidators ensures enums (like signal) are checked at update-time.
     await Device.findByIdAndUpdate(device._id, updateData, { runValidators: true });
