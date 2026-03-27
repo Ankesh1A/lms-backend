@@ -14,11 +14,11 @@ const locationSchema = new mongoose.Schema({
     },
     lat: {
         type: Number,
-        // required: true,
+        required: true,
     },
     lng: {
         type: Number,
-        // required: true,
+        required: true,
     },
     speed: {
         type: Number,

@@ -86,7 +86,15 @@ exports.pushLocation = async (req, res) => {
 
     // Process each location
     for (const locData of locations) {
-        const { lat, lng, speed = 0, battery, battery_percent, voltage, temperature, bike_status, signal, address = '' } = locData;
+        let { lat, lng, speed = 0, battery, battery_percent, voltage, temperature, bike_status, signal, address = '' } = locData;
+
+        // Fallback to last known coordinates if GPS is missing or 0,0
+        const isMissingOrZero = !lat || !lng || (lat === 0 && lng === 0);
+
+        if (isMissingOrZero) {
+            lat = lastLat;
+            lng = lastLng;
+        }
 
         if (!lat || !lng) continue;
 
@@ -213,7 +221,7 @@ exports.pushLocation = async (req, res) => {
     const resolveTypes = [];
     const resolvedBattery = lastLoc.battery_percent !== undefined ? lastLoc.battery_percent : lastLoc.battery;
     if (resolvedBattery !== undefined && resolvedBattery >= 20) resolveTypes.push('BATTERY_LOW');
-    if (lastLoc.voltage !== undefined && lastLoc.voltage <= 90)    resolveTypes.push('HIGH_VOLTAGE');
+    if (lastLoc.voltage !== undefined && lastLoc.voltage <= 90) resolveTypes.push('HIGH_VOLTAGE');
     if (lastLoc.temperature !== undefined && lastLoc.temperature <= 80) resolveTypes.push('HIGH_TEMPERATURE');
     if (lastLoc.bike_status !== undefined && lastLoc.bike_status !== 'fallen') resolveTypes.push('FALL_DETECTED');
 
