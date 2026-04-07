@@ -12,6 +12,11 @@ const alertSchema = new mongoose.Schema({
         required: true,
         index: true,
     },
+    geofence: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Geofence',
+        default: null,
+    },
     type: {
         type: String,
         enum: ['BATTERY_LOW', 'HIGH_VOLTAGE', 'HIGH_TEMPERATURE', 'FALL_DETECTED', 'GEOFENCE_ENTER', 'GEOFENCE_EXIT', 'SPEEDING'],

@@ -56,11 +56,12 @@ exports.pushLocation = async (req, res) => {
     const alertsToCreate = [];
 
     // Fetch active geofences for this device's owner
-    const activeGeofences = await Geofence.find({
-        isActive: true,
-        createdBy: device.createdBy,
-        $or: [{ devices: device._id }, { devices: { $size: 0 } }]
-    });
+    const geoQuery = { isActive: true };
+    if (device.createdBy) geoQuery.createdBy = device.createdBy;
+    const activeGeofences = await Geofence.find(geoQuery);
+
+    console.log(`[GEOFENCE DEBUG] device.createdBy=${device.createdBy}, activeGeofences found=${activeGeofences.length}`);
+    console.log(`[GEOFENCE DEBUG] device lastLat=${lastLat}, lastLng=${lastLng}`);
 
     const isPointInPolygon = (point, vs) => {
         let x = point.lat, y = point.lng;
@@ -133,9 +134,9 @@ exports.pushLocation = async (req, res) => {
                 const gf = activeGeofences[i];
 
                 if (!wasInside && isInside) {
-                    alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'GEOFENCE_ENTER', message: `Entered geofence: ${gf.name}`, lat, lng });
+                    alertsToCreate.push({ device: device._id, device_id: device.device_id, geofence: gf._id, type: 'GEOFENCE_ENTER', message: `Entered geofence: ${gf.name}`, lat, lng });
                 } else if (wasInside && !isInside) {
-                    alertsToCreate.push({ device: device._id, device_id: device.device_id, type: 'GEOFENCE_EXIT', message: `Exited geofence: ${gf.name}`, lat, lng });
+                    alertsToCreate.push({ device: device._id, device_id: device.device_id, geofence: gf._id, type: 'GEOFENCE_EXIT', message: `Exited geofence: ${gf.name}`, lat, lng });
                 }
             }
         }
@@ -191,11 +192,23 @@ exports.pushLocation = async (req, res) => {
     }
 
     if (alertsToCreate.length > 0) {
-        // Upsert logic: update existing unread alert of same type, create new if none exists
-        await Alert.bulkWrite(
-            alertsToCreate.map(alert => ({
+        const geofenceTypes = ['GEOFENCE_ENTER', 'GEOFENCE_EXIT'];
+        
+        // Separate geofence alerts from sensor alerts
+        const sensorAlerts = alertsToCreate.filter(a => !geofenceTypes.includes(a.type));
+        const geofenceAlerts = alertsToCreate.filter(a => geofenceTypes.includes(a.type));
+
+        const bulkOps = [];
+
+        // Build sensor alert upserts (no geofence field involved)
+        sensorAlerts.forEach(alert => {
+            bulkOps.push({
                 updateOne: {
-                    filter: { device: alert.device, type: alert.type, isRead: false },
+                    filter: { 
+                        device: alert.device, 
+                        type: alert.type, 
+                        isRead: false 
+                    },
                     update: {
                         $set: {
                             message: alert.message,
@@ -203,17 +216,51 @@ exports.pushLocation = async (req, res) => {
                             lng: alert.lng,
                             device_id: alert.device_id,
                             time: new Date(),
+                            type: alert.type,
                         },
                         $setOnInsert: {
                             device: alert.device,
-                            type: alert.type,
                             isRead: false,
                         },
                     },
                     upsert: true,
                 },
-            }))
-        );
+            });
+        });
+
+        // Build geofence alert upserts (with geofence field)
+        geofenceAlerts.forEach(alert => {
+            bulkOps.push({
+                updateOne: {
+                    filter: { 
+                        device: alert.device, 
+                        type: alert.type,
+                        geofence: alert.geofence,
+                        isRead: false 
+                    },
+                    update: {
+                        $set: {
+                            message: alert.message,
+                            lat: alert.lat,
+                            lng: alert.lng,
+                            device_id: alert.device_id,
+                            time: new Date(),
+                            type: alert.type,
+                        },
+                        $setOnInsert: {
+                            device: alert.device,
+                            isRead: false,
+                            geofence: alert.geofence,
+                        },
+                    },
+                    upsert: true,
+                },
+            });
+        });
+
+        if (bulkOps.length > 0) {
+            await Alert.bulkWrite(bulkOps);
+        }
     }
 
     // Auto-resolve: delete unread alerts when value returns to normal
